@@ -1,0 +1,12 @@
+# Dependências pesadas e estáveis (raramente mudam)
+# OpenCV para processamento de imagens
+opencv-python-headless==4.8.1.78
+
+# EasyOCR para reconhecimento de texto
+easyocr==1.7.0
+
+# NumPy (dependência do OpenCV e EasyOCR)
+numpy==1.24.3
+
+# Pillow para manipulação de imagens
+Pillow==9.5.0

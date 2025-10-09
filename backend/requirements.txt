@@ -1,0 +1,11 @@
+# Backend FastAPI - Dependências principais
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pymongo==4.5.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+
+# FastALPR - Dependências para reconhecimento de placas
+#opencv-python-headless==4.8.1.78
+fast-plate-ocr>=0.1.0
