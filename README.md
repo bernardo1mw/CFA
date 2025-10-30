@@ -36,37 +36,22 @@ git clone https://github.com/seu-usuario/placaview.git
 cd placaview
 ```
 
-### 2. Crie e ative o ambiente virtual (opcional)
+### 2. Suba no docker
 ```bash
-python -m venv venv
-venv\Scripts\activate      # Windows
-source venv/bin/activate   # macOS/Linux
+docker compose -f infra/docker-compose.yml up -d
 ```
 
-### 3. Instale as dependências
+### 3. Instale as dependências do frontend
 ```bash
-pip install -r requirements.txt
+npm i
 ```
 
-### 4. Inicie o MongoDB
+### 4. Inicie o Frontend
 ```bash
-mongod
+npm run dev
 ```
 
-### 5. Rode o servidor Flask
-```bash
-python app.py
-```
-Acesse em: http://127.0.0.1:5000
-
-📸 Exemplo de uso
-Acesse a home /
-
-Envie uma imagem com uma placa
-
-A placa será reconhecida e salva com a hora de entrada
-
-Acesse /registros para visualizar todos os veículos registrados
+Acesse em: http://127.0.0.1:3000 
 
 🧪 Em desenvolvimento
 Consulta por placa
@@ -74,9 +59,5 @@ Consulta por placa
 Registro de hora de saída
 
 Edição completa de registros
-
-Relatórios e exportações
-
-Desenvolvido por Matheus Salermo e Bernardo Maia
 
 
