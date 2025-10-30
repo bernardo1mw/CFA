@@ -6,7 +6,7 @@ import axios from 'axios';
 import { Placa, PlacaUpdate, PlacaSearchRequest, ImageUploadResponse } from '@/types/placa';
 
 // Configuração base da API
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://172.18.0.3:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -24,7 +24,7 @@ export class PlacaService {
     const formData = new FormData();
     formData.append('image', file);
     
-    const response = await api.post('/api/placas/upload', formData, {
+    const response = await api.post('/api/v1/placas/upload_image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -40,7 +40,7 @@ export class PlacaService {
     const formData = new FormData();
     formData.append('image_base64', imageBase64);
     
-    const response = await api.post('/api/placas/upload', formData, {
+    const response = await api.post('/api/v1/placas/upload_image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -53,7 +53,7 @@ export class PlacaService {
    * Lista todas as placas.
    */
   static async getAllPlacas(limit: number = 100): Promise<Placa[]> {
-    const response = await api.get(`/api/placas/?limit=${limit}`);
+    const response = await api.get(`/api/v1/placas/?limit=${limit}`);
     return response.data;
   }
 
@@ -61,7 +61,7 @@ export class PlacaService {
    * Busca uma placa pelo ID.
    */
   static async getPlacaById(id: string): Promise<Placa> {
-    const response = await api.get(`/api/placas/${id}`);
+    const response = await api.get(`/api/v1/placas/${id}`);
     return response.data;
   }
 
@@ -69,7 +69,7 @@ export class PlacaService {
    * Busca uma placa pelo número.
    */
   static async searchPlaca(searchRequest: PlacaSearchRequest): Promise<Placa> {
-    const response = await api.post('/api/placas/search', searchRequest);
+    const response = await api.post('/api/v1/placas/search', searchRequest);
     return response.data;
   }
 
@@ -77,7 +77,7 @@ export class PlacaService {
    * Atualiza uma placa.
    */
   static async updatePlaca(id: string, updateData: PlacaUpdate): Promise<Placa> {
-    const response = await api.put(`/api/placas/${id}`, updateData);
+    const response = await api.put(`/api/v1/placas/${id}`, updateData);
     return response.data;
   }
 
@@ -85,7 +85,7 @@ export class PlacaService {
    * Deleta uma placa.
    */
   static async deletePlaca(id: string): Promise<{ message: string }> {
-    const response = await api.delete(`/api/placas/${id}`);
+    const response = await api.delete(`/api/v1/placas/${id}`);
     return response.data;
   }
 }

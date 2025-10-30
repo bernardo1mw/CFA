@@ -7,5 +7,4 @@ python-dotenv==1.0.0
 pydantic==2.5.0
 
 # FastALPR - Dependências para reconhecimento de placas
-#opencv-python-headless==4.8.1.78
 fast-plate-ocr>=0.1.0

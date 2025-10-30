@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # Inclui os routers
-app.include_router(placas.router)
+app.include_router(placas.router, prefix="/api/v1")
 
 # Serve arquivos estáticos (se necessário)
 if os.path.exists(upload_folder):
@@ -49,29 +49,22 @@ async def root():
     return {
         "message": "PlacaView API - Sistema de Reconhecimento de Placas",
         "version": "2.0.0",
-        "docs": "/docs"
+        "docs": "/docs",
+        "api_version": "v1",
+        "endpoints": {
+            "placas": "/api/v1/placas",
+            "health": "/api/v1/health",
+            "clean": "/api/v1/placas/admin/clean"
+        }
     }
 
 
-@app.get("/health")
+@app.get("/api/v1/health")
 async def health_check():
     """Endpoint para verificação de saúde da API."""
     return {"status": "healthy", "message": "API funcionando corretamente"}
 
 
-@app.get("/clean-invalid")
-async def clean_invalid_records():
-    """Remove registros inválidos (com placa nula) do banco de dados."""
-    from .services.database import db_service
-    try:
-        deleted_count = db_service.clean_invalid_records()
-        return {
-            "message": f"Limpeza concluída. {deleted_count} registro(s) inválido(s) removido(s).",
-            "deleted_count": deleted_count
-        }
-    except Exception as e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"Erro ao limpar registros: {str(e)}")
 
 
 if __name__ == "__main__":

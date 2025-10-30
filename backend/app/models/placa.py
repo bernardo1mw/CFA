@@ -47,7 +47,12 @@ class PlacaSearchRequest(BaseModel):
 
 class ImageUploadResponse(BaseModel):
     """Modelo de resposta para upload de imagem."""
+    id: Optional[str] = Field(None, alias="_id", description="ID único do registro")
     placa: str = Field(..., description="Placa reconhecida")
     image_base64: str = Field(..., description="Imagem processada em base64")
     success: bool = Field(True, description="Indica se o processamento foi bem-sucedido")
     message: Optional[str] = Field(None, description="Mensagem adicional")
+    image_url: Optional[str] = Field(None, description="URL para acessar a imagem original")
+
+    class Config:
+        populate_by_name = True
