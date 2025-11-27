@@ -25,9 +25,10 @@ class ANPRService:
         try:
             logger.info("Inicializando FastALPR...")
             # Inicializa o sistema ALPR com configurações otimizadas
+            # Threshold reduzido de 0.4 para 0.25 para detectar mais placas
             self.alpr = ALPR(
                 detector_model="yolo-v9-t-384-license-plate-end2end",
-                detector_conf_thresh=0.4,
+                detector_conf_thresh=0.25,  # Reduzido para detectar mais placas
                 ocr_model="cct-xs-v1-global-model",
                 ocr_device="auto",  # Usa GPU se disponível, senão CPU
                 ocr_force_download=False  # Usa cache se disponível
@@ -104,6 +105,84 @@ class ANPRService:
 
         return None
 
+    def preprocessar_imagem(self, imagem: np.ndarray) -> list[np.ndarray]:
+        """
+        Pré-processa a imagem com diferentes técnicas para melhorar a detecção.
+        
+        Args:
+            imagem: Imagem original
+            
+        Returns:
+            Lista de imagens pré-processadas
+        """
+        imagens_processadas = [imagem]  # Sempre inclui a original
+        
+        # 1. Ajuste de brilho e contraste (CLAHE)
+        lab = cv2.cvtColor(imagem, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        imagem_clahe = cv2.merge([l, a, b])
+        imagem_clahe = cv2.cvtColor(imagem_clahe, cv2.COLOR_LAB2BGR)
+        imagens_processadas.append(imagem_clahe)
+        
+        # 2. Sharpening (nitidez)
+        kernel_sharpen = np.array([[-1, -1, -1],
+                                   [-1,  9, -1],
+                                   [-1, -1, -1]])
+        imagem_sharp = cv2.filter2D(imagem, -1, kernel_sharpen)
+        imagens_processadas.append(imagem_sharp)
+        
+        # 3. Aumento de contraste
+        alpha = 1.5  # Contraste
+        beta = 10    # Brilho
+        imagem_contraste = cv2.convertScaleAbs(imagem, alpha=alpha, beta=beta)
+        imagens_processadas.append(imagem_contraste)
+        
+        # 4. Combinação CLAHE + Sharpening
+        lab_sharp = cv2.cvtColor(imagem_sharp, cv2.COLOR_BGR2LAB)
+        l_sharp, a_sharp, b_sharp = cv2.split(lab_sharp)
+        l_sharp = clahe.apply(l_sharp)
+        imagem_combinada = cv2.merge([l_sharp, a_sharp, b_sharp])
+        imagem_combinada = cv2.cvtColor(imagem_combinada, cv2.COLOR_LAB2BGR)
+        imagens_processadas.append(imagem_combinada)
+        
+        return imagens_processadas
+    
+    def validar_tamanho_placa(self, bbox, imagem_shape: tuple) -> bool:
+        """
+        Valida se a placa detectada tem tamanho mínimo razoável.
+        
+        Args:
+            bbox: Bounding box da placa
+            imagem_shape: Dimensões da imagem (altura, largura)
+            
+        Returns:
+            bool: True se o tamanho é válido
+        """
+        altura_img, largura_img = imagem_shape[:2]
+        largura_placa = bbox.x2 - bbox.x1
+        altura_placa = bbox.y2 - bbox.y1
+        
+        # Placa deve ter pelo menos 2% da largura e 1% da altura da imagem
+        largura_min = largura_img * 0.02
+        altura_min = altura_img * 0.01
+        
+        # Placa não deve ser muito pequena (menos de 30x10 pixels)
+        if largura_placa < max(30, largura_min) or altura_placa < max(10, altura_min):
+            return False
+        
+        # Placa não deve ser muito grande (mais de 80% da imagem)
+        if largura_placa > largura_img * 0.8 or altura_placa > altura_img * 0.8:
+            return False
+        
+        # Razão aspecto deve ser razoável (placas são mais largas que altas)
+        razao = largura_placa / altura_placa if altura_placa > 0 else 0
+        if razao < 1.5 or razao > 8.0:  # Placas geralmente têm razão entre 2:1 e 5:1
+            return False
+        
+        return True
+
     def formatar_placa(self, texto_placa: str) -> str:
         """
         Formata a placa de acordo com o padrão brasileiro.
@@ -134,6 +213,7 @@ class ANPRService:
     def reconhecer_placa_robusto(self, imagem: np.ndarray) -> Tuple[Optional[str], Optional[np.ndarray]]:
         """
         Pipeline robusto para reconhecimento de placas usando FastALPR.
+        Tenta múltiplas estratégias de pré-processamento para maximizar detecção.
         
         Args:
             imagem: Imagem de entrada (numpy array)
@@ -146,24 +226,67 @@ class ANPRService:
             return None, None
         
         try:
-            logger.info("Processando imagem com FastALPR...")
+            logger.info("Processando imagem com FastALPR (múltiplas estratégias)...")
             
-            # Usa FastALPR para detectar e reconhecer placas
-            alpr_results = self.alpr.predict(imagem)
+            # Gera diferentes versões pré-processadas da imagem
+            imagens_processadas = self.preprocessar_imagem(imagem)
             
-            if not alpr_results:
-                logger.info("Nenhuma placa detectada.")
-                return None, imagem
+            melhor_resultado_global = None
+            melhor_confianca = 0.0
+            melhor_imagem = imagem
             
-            # Pega o resultado com maior confiança
-            melhor_resultado = max(alpr_results, key=lambda x: x.ocr.confidence if x.ocr else 0)
+            # Tenta detectar em cada versão pré-processada
+            for idx, img_processada in enumerate(imagens_processadas):
+                try:
+                    logger.debug(f"Tentativa {idx + 1}/{len(imagens_processadas)}: processando imagem...")
+                    
+                    # Usa FastALPR para detectar e reconhecer placas
+                    alpr_results = self.alpr.predict(img_processada)
+                    
+                    if not alpr_results:
+                        continue
+                    
+                    # Filtra resultados válidos
+                    resultados_validos = []
+                    for result in alpr_results:
+                        # Valida tamanho da placa
+                        if not self.validar_tamanho_placa(result.detection.bounding_box, img_processada.shape):
+                            logger.debug(f"Placa descartada: tamanho inválido")
+                            continue
+                        
+                        # Valida confiança do OCR (mínimo 0.3)
+                        if result.ocr and result.ocr.confidence and result.ocr.confidence >= 0.3:
+                            resultados_validos.append(result)
+                    
+                    if not resultados_validos:
+                        continue
+                    
+                    # Pega o resultado com maior confiança
+                    melhor_resultado = max(resultados_validos, 
+                                          key=lambda x: x.ocr.confidence if x.ocr else 0)
+                    
+                    if melhor_resultado.ocr is None or not melhor_resultado.ocr.text:
+                        continue
+                    
+                    # Atualiza melhor resultado global
+                    confianca_atual = melhor_resultado.ocr.confidence
+                    if confianca_atual > melhor_confianca:
+                        melhor_confianca = confianca_atual
+                        melhor_resultado_global = melhor_resultado
+                        melhor_imagem = img_processada
+                        logger.debug(f"Nova melhor detecção encontrada (confiança: {confianca_atual:.2f})")
+                
+                except Exception as e:
+                    logger.warning(f"Erro ao processar imagem {idx + 1}: {e}")
+                    continue
             
-            if melhor_resultado.ocr is None or not melhor_resultado.ocr.text:
-                logger.info("Placa detectada mas texto não reconhecido.")
+            # Se não encontrou nenhuma placa válida
+            if melhor_resultado_global is None:
+                logger.info("Nenhuma placa válida detectada após todas as tentativas.")
                 return None, imagem
             
             # Extrai o texto da placa
-            texto_placa = melhor_resultado.ocr.text.strip()
+            texto_placa = melhor_resultado_global.ocr.text.strip()
             
             # Aplica filtros e correções se necessário
             texto_filtrado = self.filtrar_texto_placa(texto_placa)
@@ -173,15 +296,20 @@ class ANPRService:
             # Formata a placa
             texto_placa_formatado = self.formatar_placa(texto_placa)
             
-            logger.info(f"Placa reconhecida: {texto_placa_formatado} (confiança: {melhor_resultado.ocr.confidence:.2f})")
+            # Valida se o texto formatado é válido (deve ter 7 caracteres)
+            if len(texto_placa_formatado.replace('-', '')) < 6:
+                logger.warning(f"Texto da placa muito curto: {texto_placa_formatado}")
+                return None, imagem
             
-            # Gera imagem com anotações
-            imagem_resultado = self.alpr.draw_predictions(imagem)
+            logger.info(f"Placa reconhecida: {texto_placa_formatado} (confiança: {melhor_confianca:.2f})")
+            
+            # Gera imagem com anotações usando a melhor imagem processada
+            imagem_resultado = self.alpr.draw_predictions(melhor_imagem)
             
             return texto_placa_formatado, imagem_resultado
             
         except Exception as e:
-            logger.error(f"Erro durante reconhecimento: {e}")
+            logger.error(f"Erro durante reconhecimento: {e}", exc_info=True)
             return None, imagem
 
     def reconhecer_multiplas_placas(self, imagem: np.ndarray) -> list[dict]:
