@@ -21,18 +21,18 @@ Adafruit_VL53L0X lox= Adafruit_VL53L0X();
 #include "camera_pins.h"
 
 // ====== Wi-Fi ======
-const char* WIFI_SSID     = "lab8";
-const char* WIFI_PASSWORD = "lab8arduino";
+const char* WIFI_SSID     = "bernardo";
+const char* WIFI_PASSWORD = "tvpc5476";
 
 // ====== API (use IP/hostname da rede, NÃO localhost) ======
-const char* API_POST_IMAGE_URL   = "http://10.8.10.102:8000/api/v1/placas/upload_image";
-const char* API_POST_CLEAR_URL   = "http://10.8.10.102:8000/api/v1/placas/clear"; // POST em /clear/{placa_id}
+const char* API_POST_IMAGE_URL   = "http://10.34.228.14:8001/api/v1/placas/upload_image";
+const char* API_POST_CLEAR_URL   = "http://10.34.228.14:8001/api/v1/placas/clear"; // POST em /clear/{placa_id}
 const char* API_AUTH_HEADER_KEY  = "Authorization";
 const char* API_AUTH_HEADER_VAL  = ""; // ex.: "Bearer abc123" (ou deixe vazio)
 
 // Ajuste:
-const char* HOST = "10.8.10.102";   // IP do seu servidor (não use localhost)
-const uint16_t PORT = 8000;
+const char* HOST = "10.34.228.14";   // IP do seu servidor (não use localhost)
+const uint16_t PORT = 8001;
 const char* HEALTH_PATH = "/api/v1/health";      // mude para /health se tiver
 
 // ====== Histerese + debounce ======
@@ -41,8 +41,8 @@ enum class PresenceState : uint8_t { ABSENT = 0, PRESENT = 1 };
 const uint16_t ENTER_THRESHOLD_MM = 900;   // entrou (dist < 900)
 const uint16_t EXIT_THRESHOLD_MM  = 1200;  // saiu  (dist > 1200)
 
-const uint32_t MIN_PRESENCE_MS = 5000;   // precisa manter presença por 5 s
-const uint32_t MIN_ABSENCE_MS  = 5000;   // precisa manter ausência por 5 s
+const uint32_t MIN_PRESENCE_MS = 3000;   // precisa manter presença por 5 s
+const uint32_t MIN_ABSENCE_MS  = 3000;   // precisa manter ausência por 5 s
 
 PresenceState currentState = PresenceState::ABSENT;
 uint32_t stateChangeCandidateAt = 0;
@@ -53,6 +53,47 @@ static void printMem() {
   size_t spiram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   Serial.printf("[MEM] DRAM=%u | PSRAM=%u | psramFound()=%d\n",
                 (unsigned)dram, (unsigned)spiram, (int)psramFound());
+}
+
+// ====== Otimização da câmera para OCR ======
+static void optimizeCameraForOCR() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    Serial.println("[CAM] Sensor não disponível para otimização");
+    return;
+  }
+  
+  Serial.println("[CAM] Aplicando otimizações para OCR...");
+  
+  // Exposição: AEC automático otimizado
+  s->set_exposure_ctrl(s, 1);        // AEC habilitado
+  s->set_ae_level(s, 0);             // Exposição padrão
+//  s->set_aec2(s, 0);                 // AEC2 desabilitado (resposta mais rápida)
+  
+  // Ganho: AGC com teto moderado para reduzir ruído
+  s->set_gain_ctrl(s, 1);            // AGC habilitado
+  s->set_gainceiling(s, (gainceiling_t)2); // Teto de ganho 8X (valor 2 = 8X)
+  
+  // White Balance: automático
+  s->set_whitebal(s, 1);             // AWB automático
+  s->set_awb_gain(s, 1);             // Ganho AWB habilitado
+  
+  // Contraste aumentado para melhor definição de texto
+  s->set_contrast(s, 1.5);             // Contraste máximo (+2)
+  
+  // Saturação reduzida (foco em texto, não cores)
+  s->set_saturation(s, -1);          // Saturação reduzida
+  
+  // Correções de imagem
+  s->set_lenc(s, 1);                 // Correção de lente
+  s->set_bpc(s, 1);                  // Correção de pixels ruins
+  s->set_wpc(s, 1);                  // Correção de pixels brancos
+  s->set_raw_gma(s, 1);              // Correção gamma
+  
+  // DCW habilitado (pode melhorar velocidade)
+  s->set_dcw(s, 1);
+  
+  Serial.println("[CAM] Otimizações para OCR aplicadas com sucesso");
 }
 
 // ====== Inicialização da câmera (PSRAM/SVGA como alvo) ======
@@ -81,8 +122,8 @@ static bool initCamera_PSRAM() {
   cfg.xclk_freq_hz = 20000000;
   cfg.pixel_format = PIXFORMAT_JPEG;
 
-  cfg.frame_size   = FRAMESIZE_SVGA;       // 800x600 (bom para OCR)
-  cfg.jpeg_quality = 12;                   // 10..16 (menor = melhor qualidade)
+  cfg.frame_size   = FRAMESIZE_UXGA;       // 800x600 (bom para OCR)
+  cfg.jpeg_quality = 6;                   // 10..16 (menor = melhor qualidade)
   cfg.fb_count     = 2;                    // 2 buffers
   cfg.grab_mode    = CAMERA_GRAB_LATEST;
   cfg.fb_location  = CAMERA_FB_IN_PSRAM;   // usar PSRAM
@@ -94,6 +135,7 @@ static bool initCamera_PSRAM() {
     return false;
   }
   Serial.println("[CAM] PSRAM/SVGA ok.");
+//  optimizeCameraForOCR();
   return true;
 }
 
@@ -136,6 +178,7 @@ static bool initCamera_Fallback_DRAM() {
     return false;
   }
   Serial.println("[CAM] DRAM/VGA ok (fallback).");
+  optimizeCameraForOCR();
   return true;
 }
 
@@ -222,23 +265,41 @@ static bool postJpegMultipart(const uint8_t* buf, size_t len) {
     http.addHeader(API_AUTH_HEADER_KEY, API_AUTH_HEADER_VAL);
   }
 
+  Serial.printf("[HTTP] Enviando POST para %s\n", API_POST_IMAGE_URL);
+  Serial.printf("[HTTP] Tamanho do body: %u bytes\n", (unsigned)totalLen);
+  
   int code = http.POST(body, totalLen);
   bool ok = (code >= 200 && code < 300);
-  Serial.printf("[HTTP] POST code=%d ok=%d total=%u bytes\n", code, ok, (unsigned)totalLen);
+  
+  Serial.printf("[HTTP] ========== RESPOSTA POST IMAGEM ==========\n");
+  Serial.printf("[HTTP] Status Code: %d\n", code);
+  Serial.printf("[HTTP] Sucesso: %s\n", ok ? "SIM" : "NAO");
+  
+  String resp = http.getString();
+  Serial.printf("[HTTP] Tamanho da resposta: %d bytes\n", resp.length());
+  Serial.printf("[HTTP] Resposta completa:\n%s\n", resp.c_str());
+  Serial.printf("[HTTP] ==========================================\n");
+  
   if (ok) {
-    String resp = http.getString();
-    Serial.printf("[HTTP] resp: %s\n", resp.c_str());
     String id = extractJsonStringByKey(resp, "_id");
     if (id.length() == 0) {
       id = extractJsonStringByKey(resp, "id");
     }
     if (id.length() > 0) {
       placa_id = id;
-      Serial.printf("[HTTP] extracted id=%s\n", placa_id.c_str());
+      Serial.printf("[HTTP] ID extraído: %s\n", placa_id.c_str());
     } else {
-      Serial.println("[HTTP] id não encontrado no JSON");
+      Serial.println("[HTTP] ERRO: ID não encontrado no JSON");
+    }
+  } else {
+    Serial.printf("[HTTP] ERRO: Falha no POST. Status: %d\n", code);
+    if (code == -1) {
+      Serial.println("[HTTP] ERRO: Falha na conexão ou timeout");
+    } else if (code == 0) {
+      Serial.println("[HTTP] ERRO: Sem resposta do servidor");
     }
   }
+  
   http.end();
   free(body);
   return ok;

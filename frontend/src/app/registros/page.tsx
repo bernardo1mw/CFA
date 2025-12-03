@@ -31,9 +31,7 @@ export default function RegistrosPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este registro?')) {
-      return;
-    }
+
 
     try {
       setDeletingId(id);
@@ -142,7 +140,7 @@ export default function RegistrosPage() {
                     disabled={deletingId === placa._id}
                     className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"
                   >
-                    {deletingId === placa._id ? 'Excluindo...' : '🗑 Excluir'}
+                    {deletingId === placa._id ? 'Excluindo...' : 'Excluir'}
                   </button>
                 </div>
               </div>

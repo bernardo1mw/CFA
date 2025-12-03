@@ -6,7 +6,7 @@ import axios from 'axios';
 import { Placa, PlacaUpdate, PlacaSearchRequest, ImageUploadResponse } from '@/types/placa';
 
 // Configuração base da API
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://172.18.0.3:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://172.18.0.3:8001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
